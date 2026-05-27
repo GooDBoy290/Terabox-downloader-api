@@ -7,59 +7,112 @@ import re
 app = FastAPI(
     title="Terabox Extraction API",
     description="Backend fetcher engine developed by M. Sufiyan Shaikhz (Darkened Coder)",
-    version="1.0"
+    version="1.0.1"
 )
 
-# Allow your frontend web app to communicate with this API
+# Allow your Netlify frontend to communicate with this Vercel API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Change this to your frontend URL in production
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+def normalize_terabox_url(raw_url: str):
+    """
+    Standardizes any Terabox URL to the master domain, extracts the ID,
+    and returns the specific ID formats needed for different API endpoints.
+    """
+    match = re.search(r'(?:/s/|surl=)([A-Za-z0-9_-]+)', raw_url)
+    if not match:
+        return None, None, None
+        
+    extracted_id = match.group(1)
+    
+    # Web URL surl strips the '1'
+    surl = extracted_id[1:] if extracted_id.startswith('1') else extracted_id
+    
+    # API endpoints require the '1'
+    api_surl = f"1{surl}" if not surl.startswith('1') else surl
+    
+    # We append clearCache=1 just like the browser does to ensure a fresh token
+    clean_url = f"https://dm.terabox.com/sharing/link?surl={surl}&clearCache=1"
+    
+    return clean_url, surl, api_surl
+
 def extract_dlink(share_url: str, ndus_cookie: str):
+    clean_url, surl, api_surl = normalize_terabox_url(share_url)
+    
+    if not clean_url:
+        raise ValueError("Invalid Terabox URL format.")
+
     session = requests.Session()
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
         "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
     })
     session.cookies.set("ndus", ndus_cookie, domain=".terabox.com")
 
     try:
-        # 1. Parse URL
-        surl_id = share_url.split("surl=")[-1] if "surl=" in share_url else share_url.split("/")[-1]
-        api_surl = f"1{surl_id}" if not surl_id.startswith("1") else surl_id
-
-        # 2. Get tokens
-        page_resp = session.get(share_url)
+        # ==========================================
+        # STEP 1: Scrape Dynamic Web Tokens
+        # ==========================================
+        page_resp = session.get(clean_url)
         js_token_match = re.search(r'fn%28%22([A-Fa-f0-9]+)%22%29', page_resp.text)
         pcf_token_match = re.search(r'"pcftoken"\s*:\s*"([A-Fa-f0-9]+)"', page_resp.text)
         
         if not js_token_match:
+            print("Failed to extract jsToken. Cookie might be invalid or IP blocked.")
             return None
 
         js_token = js_token_match.group(1)
         pcf_token = pcf_token_match.group(1) if pcf_token_match else ""
 
-        # 3. Get Signatures
+        # ==========================================
+        # STEP 2: Fetch Cryptographic Signatures
+        # ==========================================
         info_resp = session.get(
             "https://dm.terabox.com/api/shorturlinfo",
-            headers={"Referer": share_url},
-            params={"app_id": "250528", "web": "1", "channel": "dubox", "clienttype": "0", "jsToken": js_token, "pcftoken": pcf_token, "shorturl": api_surl, "root": "1"}
+            headers={"Referer": clean_url},
+            params={
+                "app_id": "250528", "web": "1", "channel": "dubox", "clienttype": "0",
+                "jsToken": js_token, "pcftoken": pcf_token, "shorturl": api_surl, "root": "1"
+            }
         ).json()
         
-        # 4. Get Final Link
+        if "sign" not in info_resp:
+            print(f"Info API Error: {info_resp}")
+            return None
+
+        # ==========================================
+        # STEP 3: Request the Direct Link (dlink)
+        # ==========================================
         list_resp = session.get(
             "https://dm.terabox.com/share/list",
-            params={"app_id": "250528", "web": "1", "channel": "dubox", "clienttype": "0", "jsToken": js_token, "pcftoken": pcf_token, "shorturl": surl_id, "sign": info_resp["sign"], "timestamp": info_resp["timestamp"], "shareid": info_resp["shareid"], "uk": info_resp["uk"], "page": "1", "num": "20", "root": "1"}
+            headers={"Referer": clean_url},
+            params={
+                "app_id": "250528", "web": "1", "channel": "dubox", "clienttype": "0",
+                "jsToken": js_token, "pcftoken": pcf_token, "shorturl": surl, 
+                "sign": info_resp["sign"], "timestamp": info_resp["timestamp"], 
+                "shareid": info_resp["shareid"], "uk": info_resp["uk"], 
+                "page": "1", "num": "20", "root": "1"
+            }
         ).json()
 
-        return list_resp["list"][0]["dlink"]
+        # Drill down into the JSON to extract the final link and metadata
+        file_data = list_resp["list"][0]
+        
+        return {
+            "dlink": file_data.get("dlink"),
+            "filename": file_data.get("server_filename"), # This makes your frontend detection work!
+            "size": file_data.get("size")
+        }
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Extraction Exception: {e}")
         return None
 
 # ==========================================
@@ -68,15 +121,20 @@ def extract_dlink(share_url: str, ndus_cookie: str):
 @app.get("/api/fetch")
 def fetch_terabox_video(url: str, ndus: str):
     """
-    Pass the Terabox URL and your NDUS cookie as query parameters to get the direct stream link.
+    Pass the Terabox URL and your NDUS cookie as query parameters to get the direct stream link and metadata.
     """
-    direct_link = extract_dlink(url, ndus)
-    
-    if direct_link:
-        return {
-            "success": True,
-            "developer": "Darkened Coder",
-            "dlink": direct_link
-        }
-    else:
-        raise HTTPException(status_code=400, detail="Failed to extract video link. Cookie might be invalid or IP blocked.")
+    try:
+        result = extract_dlink(url, ndus)
+        
+        if result and result.get("dlink"):
+            return {
+                "success": True,
+                "developer": "Darkened Coder",
+                "dlink": result["dlink"],
+                "filename": result["filename"],
+                "size": result["size"]
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Extraction failed. Terabox rejected the request.")
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
