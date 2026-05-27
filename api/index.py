@@ -94,11 +94,16 @@ def extract_dlink(share_url: str, ndus_cookie: str):
         ).json()
 
         # Check if the list is empty (can happen with folders or restricted files)
+    
         if "list" not in list_resp or not list_resp["list"]:
             errno = list_resp.get("errno", "Unknown")
             return {"error": True, "detail": f"No files found in payload. Errno: {errno}"}
 
         file_data = list_resp["list"][0]
+        
+        # 🚨 THE NEW FOLDER CHECK
+        if str(file_data.get("isdir", "0")) == "1":
+            return {"error": True, "detail": "This link points to a folder. Please provide a direct link to a specific video or image."}
         
         return {
             "error": False,
