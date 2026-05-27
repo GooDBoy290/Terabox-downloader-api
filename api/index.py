@@ -11,7 +11,7 @@ app = FastAPI(
 )
 
 # ⚠️ YOUR CLOUDFLARE WORKER URL GOES HERE ⚠️
-CLOUDFLARE_PROXY_URL = "https://teraboxdl.janialexa610.workers.dev/"
+CLOUDFLARE_PROXY_URL = "https://teraboxdl.janialexa610.workers.dev"
 
 app.add_middleware(
     CORSMiddleware,
