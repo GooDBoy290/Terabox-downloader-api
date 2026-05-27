@@ -110,25 +110,33 @@ def extract_dlink(share_url: str, ndus_cookie: str):
     except Exception as e:
         return {"error": True, "detail": f"Server crash: {str(e)}"}
 
+# ==========================================
+# API ENDPOINT
+# ==========================================
 @app.get("/api/fetch")
 def fetch_terabox_video(url: str, ndus: str):
     result = extract_dlink(url, ndus)
     
     if result.get("error"):
-        # We now throw a 400 error but include the EXACT reason it failed
         raise HTTPException(status_code=400, detail=result["detail"])
         
-    raw_dlink = result["dlink"]
+    raw_dlink = result.get("dlink")
+    
+    # THE FIX: Prevent the 500 crash by checking if dlink is empty
+    if not raw_dlink:
+        raise HTTPException(status_code=400, detail="Terabox payload succeeded, but no dlink was provided. Your NDUS cookie is likely expired.")
     
     # ⚠️ REMEMBER TO PASTE YOUR CLOUDFLARE URL HERE ⚠️
     proxy_base = "https://teraboxdl.janialexa610.workers.dev/"
+    
+    # Because we verified raw_dlink is a string, this will no longer crash
     stream_url = f"{proxy_base}?video={urllib.parse.quote(raw_dlink)}&ndus={urllib.parse.quote(ndus)}"
     
     return {
         "success": True,
         "developer": "Darkened Coder",
-        "filename": result["filename"],
-        "size": result["size"],
+        "filename": result.get("filename"),
+        "size": result.get("size"),
         "raw_dlink": raw_dlink,
         "stream_url": stream_url
     }
