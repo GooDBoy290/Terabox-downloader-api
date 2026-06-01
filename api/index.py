@@ -158,17 +158,17 @@ def fetch_terabox_media(url: str, ndus: str):
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["detail"])
 
+    proxy_base = "https://teraboxdl.janialexa610.workers.dev/"
     processed_files = []
     for file in result["files"]:
         raw_dlink = file.get("dlink")
         if raw_dlink:
-            # Build the internal proxy URL so mobile browsers always use the proxy
-            stream_url = f"/api/stream?dlink={urllib.parse.quote(raw_dlink)}&ndus={urllib.parse.quote(ndus)}"
+            stream_url = f"{proxy_base}?video={urllib.parse.quote(raw_dlink)}&ndus={urllib.parse.quote(ndus)}"
             processed_files.append({
                 "filename":   file.get("filename"),
                 "size":       file.get("size"),
                 "raw_dlink":  raw_dlink,
-                "stream_url": stream_url,   # ← always use the proxy
+                "stream_url": stream_url,
             })
 
     return {"success": True, "developer": "Darkened Coder", "data": processed_files}
