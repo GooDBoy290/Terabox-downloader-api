@@ -7,13 +7,9 @@
     }
   ],
   "rewrites": [
-    { 
-      "source": "/api/(.*)", 
-      "destination": "/api/index.py" 
-    },
-    { 
-      "source": "/(.*)", 
-      "destination": "/templates/index.html" 
+    {
+      "source": "/(.*)",
+      "destination": "api/index.py"
     }
   ]
 }
