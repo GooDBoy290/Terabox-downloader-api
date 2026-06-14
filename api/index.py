@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-import requests
+import os
 import re
 import urllib.parse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+import requests
 
 app = FastAPI(
     title="Terabox Recursive Extraction API",
@@ -10,14 +12,48 @@ app = FastAPI(
     version="3.0.0"
 )
 
+# Allow cross-origin requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
     allow_credentials=True,
-    allow_methods=["GET"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ─── THE CRITICAL FIX: SERVE FRONTEND DIRECTLY FROM THE CORE ──────────────────
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    # Automatically locate index.html whether it's in the root or templates/ folder
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    possible_paths = [
+        os.path.join(base_dir, "templates", "index.html"),
+        os.path.join(base_dir, "index.html")
+    ]
+    
+    html_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            html_path = path
+            break
+            
+    if not html_path:
+        return """
+        <body style="background:#060610;color:#ff4d6d;font-family:sans-serif;text-align:center;padding-top:100px;">
+            <h1>⚡ Stream Engine UI Error</h1>
+            <p style="color:#7a7d99;">Architect Alert: index.html was not found in the repository root or templates/ folder.</p>
+        </body>
+        """
+        
+    try:
+        with open(html_path, "r", encoding="utf-8") as file:
+            return file.read()
+    except Exception as e:
+        return f"<h1>Failed to read UI Asset</h1><p>Error: {str(e)}</p>"
+
+
+# ─── RECURSIVE FOLDER CRAWLER ───────────────────────────────────────────────
 def normalize_terabox_url(raw_url: str):
     match = re.search(r'(?:/s/|surl=)([A-Za-z0-9_-]+)', raw_url)
     if not match: return None, None, None
@@ -27,7 +63,6 @@ def normalize_terabox_url(raw_url: str):
     clean_url = f"https://dm.terabox.com/sharing/link?surl={surl}&clearCache=1"
     return clean_url, surl, api_surl
 
-# THE NEW RECURSIVE CRAWLER
 def extract_folder_contents(session, js_token, pcf_token, surl, sign, timestamp, shareid, uk, current_dir="/", depth=0):
     # Vercel timeout protection: limit recursion to 3 folders deep
     if depth > 3: 
