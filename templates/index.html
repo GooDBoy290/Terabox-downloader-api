@@ -214,7 +214,8 @@
             dynamicMediaArea.innerHTML = '';
 
             // WIRED DIRECTLY TO YOUR SEAMLESS VERCEL API LAYER
-            const apiEndpoint = `https://terabox-downloader-api-gamma.vercel.app/api/fetch?url=${encodeURIComponent(urlInput)}&ndus=${encodeURIComponent(ndusInput)}`;
+            // New dynamic relative URL
+            const apiEndpoint = `/api/fetch?url=${encodeURIComponent(urlInput)}&ndus=${encodeURIComponent(ndusInput)}`;
 
             try {
                 const resp = await fetch(apiEndpoint);
